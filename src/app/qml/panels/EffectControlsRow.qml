@@ -202,7 +202,7 @@ Item {
             width: row.laneWidth
             // A zoomed lane cuts off what is outside the view (unzoomed, the end keys may stand half outside it).
             clip: row.viewSpan < 1
-            radius: row.header ? Theme.radiusClip : 0
+            radius: row.header ? Theme.radiusTimeline : 0
             color: row.header ? (row.sectionKind === "transition" ? Theme.accentWash : Theme.raised) : "transparent"
             opacity: row.effectEnabled ? 1 : Theme.disabledOpacity
 
@@ -239,7 +239,7 @@ Item {
 
                 Rectangle {
                     anchors.fill: parent
-                    radius: Theme.radiusClip
+                    radius: Theme.radiusTimeline
                     color: Theme.sunken
                     border.width: Theme.hairline
                     border.color: Theme.border

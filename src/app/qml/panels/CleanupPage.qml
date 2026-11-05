@@ -12,6 +12,23 @@ Item {
 
     readonly property bool hasWords: Transcript.wordCount > 0
 
+    function kindLabel(kind) {
+        switch (kind) {
+        case "silence": return qsTr("Pause")
+        case "filler": return qsTr("Filler")
+        case "repetition": return qsTr("Possible repetition")
+        case "false_start": return qsTr("Possible false start")
+        case "script_mismatch": return qsTr("Check against script")
+        default: return qsTr("Listen to verify")
+        }
+    }
+    AiConsentDialog {
+        id: speechConsent
+        onAllowed: always => {
+            if (always) AiController.grantConsent(speechConsent.prompt.provider, "chat")
+            Transcript.analyzeSpeech(speechConsent.prompt.modelId, true)
+        }
+    }
     component GroupLabel: Text {
         color: Theme.textTertiary
         font.family: Theme.fontSans
@@ -33,6 +50,51 @@ Item {
         visible: root.hasWords
         spacing: Theme.space(2)
 
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Speech review · AI suggestions need listening")
+            color: Theme.textPrimary
+            font.family: Theme.fontSans
+            font.pixelSize: Theme.textMd
+            font.bold: true
+        }
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.space(18)
+            clip: true
+            TextArea {
+                objectName: "speechReviewScript"
+                placeholderText: qsTr("Optional reference script — compare wording, repetitions and false starts")
+                text: Transcript.reviewScript
+                onTextChanged: Transcript.reviewScript = text
+                wrapMode: TextEdit.Wrap
+                color: Theme.textPrimary
+                font.family: Theme.fontSans
+                font.pixelSize: Theme.textSm
+                background: Rectangle { color: Theme.sunken; border.color: Theme.border; radius: 0 }
+                Accessible.name: qsTr("Reference script for speech review")
+            }
+        }
+        PillButton {
+            objectName: "speechReviewAnalyze"
+            Layout.fillWidth: true
+            text: qsTr("Analyze speech with AI…")
+            enabled: !Transcript.reviewBusy
+            onClicked: {
+                const prompt = Transcript.speechReviewConsent()
+                if (prompt.modelId) speechConsent.ask(prompt)
+            }
+            tooltip: qsTr("Uses the chat model selected in AI settings. Sends transcript text and the script, not audio.")
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: Transcript.message !== ""
+            text: Transcript.message
+            wrapMode: Text.WordWrap
+            color: Theme.warning
+            font.family: Theme.fontSans
+            font.pixelSize: Theme.textSm
+        }
         // Thresholds
         RowLayout {
             Layout.fillWidth: true
@@ -109,7 +171,7 @@ Item {
         Text {
             Layout.fillWidth: true
             visible: Transcript.reviewBusy
-            text: qsTr("Checking pause audio…")
+            text: qsTr("Analyzing speech and pauses…")
             color: Theme.textSecondary
             font.family: Theme.fontSans
             font.pixelSize: Theme.textSm
@@ -149,7 +211,7 @@ Item {
                 required property var modelData
                 width: ListView.view ? ListView.view.width - Theme.space(3) : 0
                 implicitHeight: row.implicitHeight + Theme.space(2)
-                radius: Theme.radiusField
+                radius: 0
                 color: modelData.remove ? Qt.alpha(Theme.danger, 0.08) : Theme.sunken
                 border.width: Theme.hairline
                 border.color: Theme.border
@@ -173,7 +235,7 @@ Item {
                         spacing: 0
                         Text {
                             Layout.fillWidth: true
-                            text: item.modelData.label
+                            text: root.kindLabel(item.modelData.kind) + " · " + item.modelData.label
                             elide: Text.ElideRight
                             color: Theme.textPrimary
                             font.family: Theme.fontSans
@@ -189,6 +251,12 @@ Item {
                             font.family: Theme.fontSans
                             font.pixelSize: Theme.textSm
                         }
+                    }
+                    PillButton {
+                        compact: true
+                        text: item.modelData.timecode
+                        tooltip: qsTr("Jump to one second before this point, then play to listen")
+                        onClicked: Transcript.seekReview(item.modelData.index)
                     }
                     Text {
                         text: item.modelData.durationText
@@ -211,7 +279,7 @@ Item {
                 width: parent.width - Theme.space(8)
                 visible: Transcript.review.length === 0 && !Transcript.reviewBusy
                 illustration: "search"
-                text: qsTr("Find lists the filler words and long pauses; choose what goes, then preview.")
+                text: qsTr("Find checks fillers and pauses locally. Analyze speech with AI adds suggestions from the transcript and optional script.")
             }
         }
 
