@@ -282,7 +282,7 @@ QtObject {
     // 0.6, stream 1A: Settings > Appearance > Timeline corners ("rounded" | "square", appearance/timelineCorners),
     // mirrored into Theme.squareTimeline; and Settings > Timeline's Clip Mismatch Warning ("ask" | "change" | "keep",
     // editing/clipMismatch): what the first clip dropped into an empty sequence of another size or rate does.
-    property string timelineCorners: "rounded"
+    property string timelineCorners: "square"
     property string clipMismatch: "ask"
     readonly property Settings _appearance06: Settings {
         category: "appearance"
