@@ -51,3 +51,6 @@
 5. Preview > Remove; Undo เพื่อย้อนกลับ
 
 ยังคง LICENSE และ THIRD-PARTY-NOTICES ของ upstream
+
+## Windows build dependency workaround
+The win-msvc preset disables the optional C2PA SDK because the pinned c2pa-rs 0.91.2 archive download failed with HTTP error 22 in run 41991390970. This build cannot sign embedded Content Credentials; exports retain the unsigned provenance sidecar. Video editing and speech review do not depend on this SDK. Re-enable with -DWABCUT_WITH_C2PA=ON and a verified WABCUT_C2PA_ARCHIVE when the pinned archive is available.
