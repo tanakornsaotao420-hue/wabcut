@@ -209,3 +209,33 @@ TEST_CASE("Library thumbnails come from ThumbnailService", "[app][media]") {
     CHECK(right.blue() > 200);
     CHECK(right.red() < 60);
 }
+
+TEST_CASE("Waveform channels stay independent and combined peaks preserve both", "[app][waveform][channels]") {
+    media::WaveformPeaks peaks;
+    peaks.channels = 2;
+    peaks.sampleRate = Rate{48000, 1};
+    peaks.sampleCount = 512;
+    // First bin: left only. Second bin: right only.
+    peaks.levels.push_back({256, 2, {-16384, 16384, 0, 0, 0, 0, -8192, 8192}});
+    std::vector<float> left(2), right(2), combined(2);
+    const Ticks end = samplesToTicks(512, peaks.sampleRate);
+    REQUIRE(fillFromWaveformPeaks(peaks, Ticks{}, end, left, 0));
+    REQUIRE(fillFromWaveformPeaks(peaks, Ticks{}, end, right, 1));
+    REQUIRE(fillFromWaveformPeaks(peaks, Ticks{}, end, combined));
+    CHECK(left[0] > 0.49f);
+    CHECK(left[1] == 0.0f);
+    CHECK(right[0] == 0.0f);
+    CHECK(right[1] > 0.24f);
+    CHECK(combined[0] == left[0]);
+    CHECK(combined[1] == right[1]);
+    CHECK_FALSE(fillFromWaveformPeaks(peaks, Ticks{}, end, left, 2));
+    CHECK_FALSE(fillFromWaveformPeaks(peaks, Ticks{}, end, left, -2));
+    CHECK_FALSE(fillFromWaveformPeaks(peaks, end, Ticks{}, left, 0));
+
+    peaks.channels = 1;
+    peaks.levels[0].peaks = {-16384, 16384, 0, 0};
+    REQUIRE(fillFromWaveformPeaks(peaks, Ticks{}, end, left, 0));
+    CHECK(left[0] > 0.49f);
+    CHECK(left[1] == 0.0f);
+    CHECK_FALSE(fillFromWaveformPeaks(peaks, Ticks{}, end, right, 1));
+}

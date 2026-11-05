@@ -488,7 +488,11 @@ TEST_CASE("Timeline corners Square squares the timeline in the dark and light th
     TimelineView* view = p.view();
     view->setPixelsPerSecond(500);
     view->setScrollX(0);
-    // The default: rounded (the Echo look).
+    // This fork defaults to square. Verify the retained rounded option too.
+    CHECK(view->parsedStyle().clipRadius == 0);
+    CHECK(view->parsedStyle().laneRadius == 0);
+    p.shell.preferences->setProperty("timelineCorners", QStringLiteral("rounded"));
+    spin(50);
     CHECK(view->parsedStyle().clipRadius > 0);
     CHECK(view->parsedStyle().laneRadius > 0);
     p.controller->selectClipById(p.tl.clip("V1@8"), ProjectController::Replace);
