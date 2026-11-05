@@ -5,7 +5,7 @@
 ## สิ่งที่แก้
 - ขอบคลิปและแทร็กเป็นเหลี่ยม รวมพื้นหลัง Effect Controls; เปลี่ยนกลับเป็นขอบมนได้ใน Settings > Appearance
 - สัญลักษณ์คีย์เฟรมยังบอก interpolation ตามเดิม
-- คลื่นเสียงฟ้าบนพื้นน้ำเงินเข้ม แยก source channels จริง มีป้าย L/R เมื่อพื้นที่พอ และเพิ่มความสูงแทร็กเสียง
+- คลื่นเสียงฟ้าบนพื้นน้ำเงินเข้ม แยก source channels จริง มีป้าย L/R เมื่อพื้นที่พอ ขยายความสูงแทร็กเพื่อให้ป้ายช่องเสียงปรากฏ
 - โมโนช่องเดียว; nested/multicam mix และแทร็กที่เตี้ยมากยังแสดงรวม
 - คลื่นเสียงแสดง source channels ไม่ใช่เสียงหลัง channel routing/effects
 - Clean up เพิ่ม Analyze speech with AI และช่องบทอ้างอิง
@@ -22,7 +22,8 @@
 - ไม่มีบทจะไม่ยืนยันว่าพูดผิด; ความต่างจากบทอาจเป็นการเรียบเรียงที่ถูกต้อง
 - จำกัด 6000 คำและบท UTF-8 24 KB ต่อครั้ง; แบ่งคำเป็นช่วงละ 300 ทับซ้อน 12 คำ
 - API response ผิด schema/เกินช่วง/ข้ามผู้พูดจะถูกปฏิเสธ ต้องวิเคราะห์ใหม่
-- ยังไม่ทดสอบ live API, Qt UI, Windows EXE, การ export จริง
+- Windows คอมไพล์ผ่านใน build รอบ 2; ยังไม่ได้แพ็กตัวติดตั้งเพราะชุดทดสอบ UI ไม่ผ่าน
+- ยังไม่ทดสอบ live API และการ export จริง
 
 ## การตรวจสอบที่ทำแล้วในรอบก่อน checkpoint
 - ชุดทดสอบ review เดิมและใหม่: 649 assertions ใน 6 test cases ผ่าน (focused harness, actual model/AI source)
@@ -54,3 +55,6 @@
 
 ## Windows build dependency workaround
 The win-msvc preset disables the optional C2PA SDK because the pinned c2pa-rs 0.91.2 archive download failed with HTTP error 22 in run 41991390970. This build cannot sign embedded Content Credentials; exports retain the unsigned provenance sidecar. Video editing and speech review do not depend on this SDK. Re-enable with -DWABCUT_WITH_C2PA=ON and a verified WABCUT_C2PA_ARCHIVE when the pinned archive is available.
+
+## UI regression fixes after Windows build 2
+Audio colours now use shared Theme tokens. Default audio track heights return to 36/44 px so existing track visibility and drag/drop geometry are retained; expand tracks for larger stereo waves and L/R labels. The colour-source guard passes locally. Full Windows tests are pending the next CI run.
