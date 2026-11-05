@@ -55,6 +55,7 @@ add_library(wabcut_ai_edit STATIC
     src/MediaTranscript.cpp # P0 round: the source clip transcript
     src/Profanity.cpp
     src/Review.cpp
+    src/SpeechReview.cpp
     src/SequenceTranscript.cpp
     src/TextEdits.cpp
     src/TranscriptCommands.cpp
