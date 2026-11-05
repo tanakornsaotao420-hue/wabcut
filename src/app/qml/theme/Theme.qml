@@ -228,6 +228,11 @@ QtObject {
     function audioClipFill(c) { return c }
     function audioClipBorder(c) { return Qt.alpha(clipInk, 0.18) }
     function waveform(c) { return dark ? Qt.lighter(c, 1.25) : Qt.darker(c, 1.45) }   // on dark wells (Source monitor)
+    readonly property color timelineAudioLabel: "#d6f4ff"
+    readonly property color timelineAudioFill: "#004b63"
+    readonly property color timelineAudioBorder: "#347e94"
+    readonly property color timelineAudioWave: "#68ccf4"
+    readonly property color timelineAudioVolume: "#effaff"
     readonly property color clipWave: Qt.alpha(clipInk, 0.32)    // waveforms drawn on a solid clip
     readonly property color clipBorder: Qt.alpha(clipInk, 0.18)
     readonly property color accentWash: Qt.alpha(live.accentStroke, 0.14) // translucent accent area (ranges, viewport)
@@ -324,7 +329,7 @@ QtObject {
     // Timeline
     readonly property int trackHeaderWidth: 204   // source patching column + target chip + toggles (M5h)
     readonly property int trackHeightVideo: compact ? 32 : 40
-    readonly property int trackHeightAudio: compact ? 64 : 96
+    readonly property int trackHeightAudio: compact ? 36 : 44
     // 0.5: caption tracks as lanes above the video tracks: a compact row, the cues a light neutral that carries clipInk
     // at >= 4.5:1 and reads on the lanes of both themes (like the label colours, it does not follow the theme).
     readonly property int trackHeightCaption: compact ? 26 : 28
