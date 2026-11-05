@@ -107,7 +107,11 @@ QVariantMap TranscriptBridge::speechReviewConsent() {
     bool priced = true;
     const auto script = m_reviewScript.trimmed().toStdString();
     for (std::size_t first = 0; first < m_transcript.size();) {
-        const auto count = std::min(ai::edit::kSpeechReviewChunk, m_transcript.size() - first);
+        const auto count = ai::edit::speechReviewChunkSize(m_transcript, script, first);
+        if (count == 0) {
+            setMessage(tr("Reference script or a transcript entry is too long for local speech review. Shorten the reference script or split the long transcript entry first."));
+            return {};
+        }
         const auto request = ai::edit::speechReviewRequest(m_transcript, script, first, count);
         const auto flight = m_ai->platform().preflightChat(id.toStdString(), request);
         if (!flight) {
@@ -117,7 +121,7 @@ QVariantMap TranscriptBridge::speechReviewConsent() {
         estimate += flight->cost.ceiling;
         priced = priced && flight->cost.priced;
         if (first + count == m_transcript.size()) break;
-        first += count - ai::edit::kSpeechReviewOverlap;
+        first += count - std::min(ai::edit::kSpeechReviewOverlap, count / 2);
     }
     prompt[QStringLiteral("cost")] = priced
         ? tr("Estimated ceiling: USD %1 (actual usage may differ)").arg(static_cast<double>(estimate) / 1000000.0, 0, 'f', 4)
@@ -211,7 +215,9 @@ void TranscriptBridge::startReview(std::shared_ptr<ai::IChatModel> chat) {
                     std::vector<ai::edit::ReviewItem> suggestions;
                     std::set<std::tuple<ai::edit::ReviewKind, std::size_t, std::size_t>> seen;
                     for (std::size_t first = 0; first < transcript.size() && !stop.stop_requested();) {
-                        const auto count = std::min(ai::edit::kSpeechReviewChunk, transcript.size() - first);
+                        const auto count = ai::edit::speechReviewChunkSize(transcript, script, first);
+                        if (count == 0)
+                            throw std::runtime_error("Reference script or a transcript entry is too long for local speech review; shorten it before retrying");
                         const auto request = ai::edit::speechReviewRequest(transcript, script, first, count);
                         const auto response = chat->chat(request, {}, stop);
                         if (!response) throw std::runtime_error(response.error().message);
@@ -224,7 +230,7 @@ void TranscriptBridge::startReview(std::shared_ptr<ai::IChatModel> chat) {
                                 suggestions.push_back(std::move(item));
                         progress(0.25f + 0.75f * static_cast<float>(first + count) / static_cast<float>(transcript.size()));
                         if (first + count == transcript.size()) break;
-                        first += count - ai::edit::kSpeechReviewOverlap;
+                        first += count - std::min(ai::edit::kSpeechReviewOverlap, count / 2);
                     }
                     result.insert(result.end(), suggestions.begin(), suggestions.end());
                     std::stable_sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
