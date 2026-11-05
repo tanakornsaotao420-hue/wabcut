@@ -215,7 +215,17 @@ std::vector<std::string> FillerLexicon::builtinLanguages() {
     return out;
 }
 
-std::string_view toString(ReviewKind kind) { return kind == ReviewKind::Filler ? "filler" : "silence"; }
+std::string_view toString(ReviewKind kind) {
+    switch (kind) {
+    case ReviewKind::Filler: return "filler";
+    case ReviewKind::Silence: return "silence";
+    case ReviewKind::Repetition: return "repetition";
+    case ReviewKind::FalseStart: return "false_start";
+    case ReviewKind::ScriptMismatch: return "script_mismatch";
+    case ReviewKind::UncertainSpeech: return "uncertain_speech";
+    }
+    return "unknown";
+}
 
 // --- Review ------------------------------------------------------------------------------------------------
 
@@ -365,7 +375,7 @@ DeleteRequest deleteRequestFor(std::span<const ReviewItem> items, const CutOptio
     DeleteRequest request;
     request.options = options;
     for (const ReviewItem& item : items) {
-        if (item.kind == ReviewKind::Filler) {
+        if (item.kind != ReviewKind::Silence) {
             request.words.push_back(WordRange{item.firstWord, item.lastWord});
         } else {
             request.gapsAfter.push_back(item.firstWord);
