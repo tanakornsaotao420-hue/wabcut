@@ -243,7 +243,7 @@ QtObject {
     readonly property int radiusClip: 9        // timeline clips, minimap
     // 0.6 (Settings > Appearance > Timeline corners, Preferences.timelineCorners): square timeline clips, lanes, cues,
     // chips and track header boxes (Premiere's look). The timeline reads these two, never radiusClip directly.
-    property bool squareTimeline: false
+    property bool squareTimeline: true
     readonly property int radiusTimeline: squareTimeline ? 0 : radiusClip
     /// A timeline pill of height `h` (track header boxes, chips): round ends, or square with Square corners.
     function timelinePill(h: real): real {
@@ -324,7 +324,7 @@ QtObject {
     // Timeline
     readonly property int trackHeaderWidth: 204   // source patching column + target chip + toggles (M5h)
     readonly property int trackHeightVideo: compact ? 32 : 40
-    readonly property int trackHeightAudio: compact ? 36 : 44
+    readonly property int trackHeightAudio: compact ? 64 : 96
     // 0.5: caption tracks as lanes above the video tracks: a compact row, the cues a light neutral that carries clipInk
     // at >= 4.5:1 and reads on the lanes of both themes (like the label colours, it does not follow the theme).
     readonly property int trackHeightCaption: compact ? 26 : 28
