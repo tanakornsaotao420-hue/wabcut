@@ -33,6 +33,22 @@ ChatRequest speechReviewRequest(const SequenceTranscript& st, std::string_view s
     return request;
 }
 
+std::size_t speechReviewChunkSize(const SequenceTranscript& st, std::string_view script, std::size_t first) {
+    if (first >= st.size()) return 0;
+    // Measure the serialized request rather than counting ASR words: a Thai ASR
+    // word may contain a whole sentence, and JSON metadata also consumes context.
+    std::size_t low = 0;
+    std::size_t high = std::min(kSpeechReviewChunk, st.size() - first);
+    while (low < high) {
+        const auto mid = low + (high - low + 1) / 2;
+        const auto request = speechReviewRequest(st, script, first, mid);
+        const auto bytes = request.system.size() + request.messages.front().text().size();
+        if (bytes <= kSpeechReviewInputBytes) low = mid;
+        else high = mid - 1;
+    }
+    return low;
+}
+
 std::expected<std::vector<ReviewItem>, Error> parseSpeechReview(
     const SequenceTranscript& st, std::string_view response, std::size_t first, std::size_t count, bool hasScript) {
     const auto bad = [] {
