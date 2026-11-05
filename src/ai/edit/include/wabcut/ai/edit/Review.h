@@ -59,7 +59,7 @@ public:
     virtual void prefetch(std::span<const Range> ranges) const { (void)ranges; }
 };
 
-enum class ReviewKind { Filler, Silence };
+enum class ReviewKind { Filler, Silence, Repetition, FalseStart, ScriptMismatch, UncertainSpeech };
 
 std::string_view toString(ReviewKind kind);
 
