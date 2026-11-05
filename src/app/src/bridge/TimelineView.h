@@ -144,8 +144,8 @@ struct TimelineStyle {
     std::vector<QColor> waveformColors;
     QFont labelFont;
     qreal microSize = 10, microTracking = 0.6; // Theme micro-tag typography
-    qreal laneRadius = 6, clipRadius = 6, selectionWidth = 2, selectionGap = 1, glowSize = 12, shadowSize = 8;
-    qreal chipRadius = 999; // 0.6: the chips on clips (fx, out of sync): at most half their height (0: square corners)
+    qreal laneRadius = 0, clipRadius = 0, selectionWidth = 2, selectionGap = 1, glowSize = 12, shadowSize = 8;
+    qreal chipRadius = 0; // 0.6: the chips on clips (fx, out of sync): at most half their height (0: square corners)
     qreal liftOffset = 2, playheadWidth = 2, labelPadding = 8, labelTop = 4, waveTop = 16, waveBottom = 4;
     qreal markerWidth = 1, markerOpacity = 0.35;
     qreal videoTrackHeight = 40, audioTrackHeight = 44, trackGap = 2;

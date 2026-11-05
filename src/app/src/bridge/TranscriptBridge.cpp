@@ -820,6 +820,7 @@ QVariantList TranscriptBridge::review() const {
             {QStringLiteral("label"), fromStd(item.label)},
             {QStringLiteral("context"), fromStd(item.context)},
             {QStringLiteral("durationText"), tr("%1 s").arg(item.range.duration.toSeconds(), 0, 'f', 1)},
+            {QStringLiteral("timecode"), m_controller ? m_controller->formatTimecode(item.range.start) : QString()},
             {QStringLiteral("confidence"), item.confidence},
             {QStringLiteral("remove"), static_cast<bool>(m_reviewRemove[i])},
         });

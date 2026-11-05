@@ -42,8 +42,8 @@ Ticks reachOf(const media::WaveformPeaks& peaks) {
 
 } // namespace
 
-bool fillFromWaveformPeaks(const media::WaveformPeaks& w, Ticks sourceStart, Ticks sourceEnd, std::span<float> out) {
-    if (w.channels <= 0 || w.levels.empty() || out.empty() || sourceEnd <= sourceStart)
+bool fillFromWaveformPeaks(const media::WaveformPeaks& w, Ticks sourceStart, Ticks sourceEnd, std::span<float> out, int channel) {
+    if (channel < -1 || channel >= w.channels || w.channels <= 0 || w.levels.empty() || out.empty() || sourceEnd <= sourceStart)
         return false;
     const double rate = w.sampleRate.toDouble();
     const double s0 = sourceStart.toSeconds() * rate;
@@ -60,7 +60,7 @@ bool fillFromWaveformPeaks(const media::WaveformPeaks& w, Ticks sourceStart, Tic
                                    std::int64_t{0}, level->binCount);
         int peak = 0;
         for (std::int64_t b = b0; b < b1; ++b) {
-            for (int c = 0; c < w.channels; ++c) {
+            for (int c = channel < 0 ? 0 : channel; c < (channel < 0 ? w.channels : channel + 1); ++c) {
                 peak = std::max({peak, std::abs(static_cast<int>(level->minAt(b, c, w.channels))),
                                  std::abs(static_cast<int>(level->maxAt(b, c, w.channels)))});
             }
@@ -132,6 +132,24 @@ media::WaveformPeaksService& MediaPeakSource::service() const {
 
 bool MediaPeakSource::peaks(MediaId media, StreamRef stream, Ticks sourceStart, Ticks sourceEnd,
                             std::span<float> out) const {
+    return readPeaks(media, stream, sourceStart, sourceEnd, out, -1);
+}
+
+int MediaPeakSource::channelCount(MediaId media, StreamRef stream) const {
+    std::lock_guard lock(m_mutex);
+    const auto it = m_entries.find({media.value, stream.index});
+    return it != m_entries.end() && it->second.peaks ? std::max(1, it->second.peaks->channels) : 1;
+}
+
+bool MediaPeakSource::channelPeaks(MediaId media, StreamRef stream, Ticks start, Ticks end,
+                                  int channel, std::span<float> out) const {
+    if (channel < 0)
+        return false;
+    return readPeaks(media, stream, start, end, out, channel);
+}
+
+bool MediaPeakSource::readPeaks(MediaId media, StreamRef stream, Ticks sourceStart, Ticks sourceEnd,
+                               std::span<float> out, int channel) const {
     std::shared_ptr<const media::WaveformPeaks> available;
     bool partial = false;
     std::string path;
@@ -141,7 +159,7 @@ bool MediaPeakSource::peaks(MediaId media, StreamRef stream, Ticks sourceStart, 
         std::lock_guard lock(m_mutex);
         const auto file = m_files.find(media.value);
         if (file == m_files.end() || stream.kind != StreamKind::Audio)
-            return m_placeholder.peaks(media, stream, sourceStart, sourceEnd, out);
+            return channel <= 0 && m_placeholder.peaks(media, stream, sourceStart, sourceEnd, out);
         const Key key{media.value, stream.index};
         if (const auto it = m_entries.find(key); it != m_entries.end()) {
             if (it->second.state == State::Failed || !it->second.peaks)
@@ -166,7 +184,7 @@ bool MediaPeakSource::peaks(MediaId media, StreamRef stream, Ticks sourceStart, 
         // part of a range past it is drawn flat until the next snapshot).
         if (partial && sourceStart >= reachOf(*available))
             return false;
-        return fillFromWaveformPeaks(*available, sourceStart, sourceEnd, out);
+        return fillFromWaveformPeaks(*available, sourceStart, sourceEnd, out, channel);
     }
 
     const Key key{media.value, stream.index};

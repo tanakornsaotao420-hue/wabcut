@@ -32,6 +32,13 @@ public:
     virtual bool peaks(MediaId media, StreamRef stream, Ticks sourceStart, Ticks sourceEnd,
                        std::span<float> out) const = 0;
 
+    /// Cached channel count; sources without channel data remain a single combined lane.
+    virtual int channelCount(MediaId, StreamRef) const { return 1; }
+    virtual bool channelPeaks(MediaId media, StreamRef stream, Ticks start, Ticks end,
+                              int channel, std::span<float> out) const {
+        return channel == 0 && peaks(media, stream, start, end, out);
+    }
+
     /// p02 audio: while the peaks of `stream` are still being decoded, the source time the decoded part reaches (the
     /// timeline shades the rest of its clips); nullopt once they are complete, or when the source does not say.
     virtual std::optional<Ticks> buildingUntil(MediaId /*media*/, StreamRef /*stream*/) const { return std::nullopt; }

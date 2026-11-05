@@ -50,7 +50,7 @@ class ThumbnailService;
 namespace wabcut::app {
 
 /// Fills `out` from a peak pyramid for the source range [sourceStart, sourceEnd); false when it has no data there.
-bool fillFromWaveformPeaks(const media::WaveformPeaks& peaks, Ticks sourceStart, Ticks sourceEnd, std::span<float> out);
+bool fillFromWaveformPeaks(const media::WaveformPeaks& peaks, Ticks sourceStart, Ticks sourceEnd, std::span<float> out, int channel = -1);
 
 class MediaPeakSource final : public QObject, public PeakSource {
     Q_OBJECT
@@ -72,6 +72,10 @@ public:
     bool peaks(MediaId media, StreamRef stream, Ticks sourceStart, Ticks sourceEnd,
                std::span<float> out) const override;
 
+    int channelCount(MediaId media, StreamRef stream) const override;
+    bool channelPeaks(MediaId media, StreamRef stream, Ticks start, Ticks end,
+                      int channel, std::span<float> out) const override;
+
     /// While the peaks of `stream` are still being decoded: the source time the decoded part reaches (zero until the
     /// first partial result). nullopt once they are complete or failed, before they are first asked for, and for
     /// media without a file. Any thread.
@@ -89,6 +93,8 @@ signals:
     void peaksReady();
 
 private:
+    bool readPeaks(MediaId media, StreamRef stream, Ticks start, Ticks end,
+                   std::span<float> out, int channel) const;
     enum class State { Pending, Ready, Failed };
     struct Entry {
         State state = State::Pending;

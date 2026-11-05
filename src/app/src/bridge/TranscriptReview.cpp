@@ -1,4 +1,9 @@
 #include "TranscriptBridge.h"
+#include "AiController.h"
+#include <wabcut/ai/edit/SpeechReview.h>
+#include <set>
+#include <tuple>
+#include <stdexcept>
 
 #include <wabcut/ai/AudioEnergy.h>
 #include <wabcut/ai/edit/MediaServices.h>
@@ -55,6 +60,8 @@ private:
 
 void TranscriptBridge::cancelReview() {
     ++m_reviewGeneration;
+    if (m_controller)
+        m_controller->setTimelineHighlights(QStringLiteral("speechReview"), {});
     for (auto& worker : m_reviewWorkers)
         worker.thread.request_stop();
     // Joining only finished workers never waits for decoding on the GUI thread.
@@ -66,11 +73,94 @@ void TranscriptBridge::cancelReview() {
     }
 }
 
-void TranscriptBridge::refreshReview() {
+void TranscriptBridge::setReviewScript(const QString& script) {
+    if (script == m_reviewScript) return;
     cancelReview();
     cancelPreview();
     m_review.clear();
     m_reviewRemove.clear();
+    m_reviewScript = script;
+    emit reviewOptionsChanged();
+    emit reviewChanged();
+}
+
+QVariantMap TranscriptBridge::speechReviewConsent() {
+    if (!m_ai || m_transcript.empty()) {
+        setMessage(tr("Transcribe the sequence and configure a chat model in AI settings first"));
+        return {};
+    }
+    if (m_transcript.size() > 6000 || m_reviewScript.toUtf8().size() > 24000) {
+        setMessage(tr("Review up to 6000 words and a script up to 24 KB at a time; split a longer sequence first"));
+        return {};
+    }
+    const auto models = m_ai->platform().resolve(ai::Capability::Chat);
+    if (!models || models->empty()) {
+        setMessage(models ? tr("No chat model configured") : QString::fromStdString(models.error().message));
+        return {};
+    }
+    const QString id = QString::fromStdString(models->front().model->id);
+    auto prompt = m_ai->consentPrompt(id, QStringLiteral("chat"),
+        tr("Transcript text (%1 words) and the reference script; no audio or video. Suggestions require listening.")
+            .arg(m_transcript.size()));
+    prompt[QStringLiteral("modelId")] = id;
+    ai::MicroUsd estimate = 0;
+    bool priced = true;
+    const auto script = m_reviewScript.trimmed().toStdString();
+    for (std::size_t first = 0; first < m_transcript.size();) {
+        const auto count = std::min(ai::edit::kSpeechReviewChunk, m_transcript.size() - first);
+        const auto request = ai::edit::speechReviewRequest(m_transcript, script, first, count);
+        const auto flight = m_ai->platform().preflightChat(id.toStdString(), request);
+        if (!flight) {
+            setMessage(QString::fromStdString(flight.error().message));
+            return {};
+        }
+        estimate += flight->cost.ceiling;
+        priced = priced && flight->cost.priced;
+        if (first + count == m_transcript.size()) break;
+        first += count - ai::edit::kSpeechReviewOverlap;
+    }
+    prompt[QStringLiteral("cost")] = priced
+        ? tr("Estimated ceiling: USD %1 (actual usage may differ)").arg(static_cast<double>(estimate) / 1000000.0, 0, 'f', 4)
+        : tr("Price unavailable for this model; check your provider's pricing");
+    return prompt;
+}
+
+QString TranscriptBridge::analyzeSpeech(const QString& modelId, bool allowOnce) {
+    if (!m_ai || !m_controller || m_transcript.empty() || modelId.isEmpty()) {
+        setMessage(tr("Transcribe the sequence and select an available AI chat model first"));
+        return m_message;
+    }
+    if (m_transcript.size() > 6000 || m_reviewScript.toUtf8().size() > 24000) {
+        setMessage(tr("Review up to 6000 words and a script up to 24 KB at a time"));
+        return m_message;
+    }
+    auto chat = m_ai->platform().chat(modelId.toStdString(), ai::CallOptions{allowOnce, {}});
+    if (!chat) {
+        setMessage(QString::fromStdString(chat.error().message));
+        return m_message;
+    }
+    startReview(std::shared_ptr<ai::IChatModel>(std::move(*chat)));
+    return {};
+}
+
+void TranscriptBridge::seekReview(int index) {
+    if (!m_controller || index < 0 || static_cast<std::size_t>(index) >= m_review.size()) return;
+    const auto& item = m_review[static_cast<std::size_t>(index)];
+    m_controller->setPlayhead(std::max(Ticks{}, item.range.start - Ticks{kTicksPerSecond}));
+    TimelineHighlight mark;
+    mark.range = item.range;
+    mark.tracks.push_back(m_transcript[item.firstWord].track);
+    m_controller->setTimelineHighlights(QStringLiteral("speechReview"), {mark});
+}
+
+void TranscriptBridge::refreshReview() { startReview(); }
+
+void TranscriptBridge::startReview(std::shared_ptr<ai::IChatModel> chat) {
+    cancelReview();
+    cancelPreview();
+    m_review.clear();
+    m_reviewRemove.clear();
+    setMessage({});
     emit reviewChanged();
     if (!m_controller || !m_mapped || m_transcript.empty())
         return;
@@ -87,13 +177,14 @@ void TranscriptBridge::refreshReview() {
     const auto selection = m_controller->selection();
     const auto sequence = m_controller->currentSequenceId();
     const auto runner = m_reviewRunner;
+    const auto script = m_reviewScript.trimmed().toStdString();
     const QPointer<TranscriptBridge> self(this);
     m_reviewBusy = true;
     m_reviewProgress = 0;
     emit reviewProgressChanged();
     auto finished = std::make_shared<std::atomic<bool>>(false);
     std::jthread thread([this, self, generation, snapshot, transcript, project, selection, sequence, options,
-                         runner, finished](std::stop_token stop) {
+                         runner, finished, chat, script](std::stop_token stop) {
         const auto progress = [this, self, generation](float value) {
             QMetaObject::invokeMethod(
                 this,
@@ -109,11 +200,36 @@ void TranscriptBridge::refreshReview() {
         QString error;
         try {
             if (!stop.stop_requested()) {
+                const auto localProgress = [&](float value) { progress(chat ? value * 0.25f : value); };
                 if (runner)
-                    result = runner(transcript, *snapshot, options, stop, progress);
+                    result = runner(transcript, *snapshot, options, stop, localProgress);
                 else {
-                    ReviewEnergy probe(project, stop, progress);
+                    ReviewEnergy probe(project, stop, localProgress);
                     result = ai::edit::review(transcript, *snapshot, options, &probe);
+                }
+                if (chat) {
+                    std::vector<ai::edit::ReviewItem> suggestions;
+                    std::set<std::tuple<ai::edit::ReviewKind, std::size_t, std::size_t>> seen;
+                    for (std::size_t first = 0; first < transcript.size() && !stop.stop_requested();) {
+                        const auto count = std::min(ai::edit::kSpeechReviewChunk, transcript.size() - first);
+                        const auto request = ai::edit::speechReviewRequest(transcript, script, first, count);
+                        const auto response = chat->chat(request, {}, stop);
+                        if (!response) throw std::runtime_error(response.error().message);
+                        if (response->stopReason != ai::StopReason::EndTurn)
+                            throw std::runtime_error("Incomplete AI response; no AI suggestions were applied");
+                        auto parsed = ai::edit::parseSpeechReview(transcript, response->message.text(), first, count, !script.empty());
+                        if (!parsed) throw std::runtime_error(parsed.error().message);
+                        for (auto& item : *parsed)
+                            if (seen.emplace(item.kind, item.firstWord, item.lastWord).second)
+                                suggestions.push_back(std::move(item));
+                        progress(0.25f + 0.75f * static_cast<float>(first + count) / static_cast<float>(transcript.size()));
+                        if (first + count == transcript.size()) break;
+                        first += count - ai::edit::kSpeechReviewOverlap;
+                    }
+                    result.insert(result.end(), suggestions.begin(), suggestions.end());
+                    std::stable_sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
+                        return a.range.start < b.range.start;
+                    });
                 }
             }
         } catch (const std::exception& e) {
@@ -137,8 +253,16 @@ void TranscriptBridge::refreshReview() {
                     return;
                 }
                 self->m_review = result;
-                for (const auto& item : result)
-                    self->m_reviewRemove.push_back(item.confidence >= 0.5f);
+                std::vector<TimelineHighlight> highlights;
+                for (const auto& item : result) {
+                    const bool local = item.kind == ai::edit::ReviewKind::Filler || item.kind == ai::edit::ReviewKind::Silence;
+                    self->m_reviewRemove.push_back(local && item.confidence >= 0.5f);
+                    TimelineHighlight mark;
+                    mark.range = item.range;
+                    mark.tracks.push_back(self->m_transcript[item.firstWord].track);
+                    highlights.push_back(std::move(mark));
+                }
+                self->m_controller->setTimelineHighlights(QStringLiteral("speechReview"), std::move(highlights));
                 emit self->reviewChanged();
             },
             Qt::QueuedConnection);

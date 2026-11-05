@@ -2653,37 +2653,82 @@ std::pair<int, int> buildTrack(BuildContext& ctx, TrackBucket& b, const Timeline
                     // of the clips it plays (NestedPeaks), shaded where one of those is still building.
                     const bool fromLeaves = it->isNested() && ctx.project;
                     NestedPeaksResult leaves;
-                    bool drawn = false;
-                    if (n > 0 && tb > ta) {
-                        if (fromLeaves) {
-                            leaves = nestedPeaks(*it, *ctx.project, ctx.peaks, ta, tb, ctx.peakScratch, &ctx.pendingScratch,
-                                                 ctx.mixes, ctx.projectSnapshot);
-                            drawn = leaves.drawn;
-                            if (drawn)
-                                ++ctx.nestedWaveforms;
-                            if (leaves.exact)
-                                ++ctx.exactWaveforms;
-                        } else {
-                            drawn = ctx.peaks.peaks(it->media, it->stream, it->sourceTimeAt(ta), it->sourceTimeAt(tb),
-                                                    ctx.peakScratch);
+                    // Keep a combined overview on very short tracks and nested mixes. Expanded
+                    // source clips show independent channel data, never a duplicated mono envelope.
+                    const int availableChannels = fromLeaves ? 1 : ctx.peaks.channelCount(it->media, it->stream);
+                    const int channels = availableChannels > 1 && 2 * half / availableChannels >= 8
+                                             ? availableChannels : 1;
+                    for (int channel = 0; channel < channels; ++channel) {
+                        bool drawn = false;
+                        if (n > 0 && tb > ta) {
+                            if (fromLeaves) {
+                                leaves = nestedPeaks(*it, *ctx.project, ctx.peaks, ta, tb, ctx.peakScratch, &ctx.pendingScratch,
+                                                     ctx.mixes, ctx.projectSnapshot);
+                                drawn = leaves.drawn;
+                                if (drawn)
+                                    ++ctx.nestedWaveforms;
+                                if (leaves.exact)
+                                    ++ctx.exactWaveforms;
+                            } else {
+                                drawn = channels == 1
+                                    ? ctx.peaks.peaks(it->media, it->stream, it->sourceTimeAt(ta), it->sourceTimeAt(tb), ctx.peakScratch)
+                                    : ctx.peaks.channelPeaks(it->media, it->stream, it->sourceTimeAt(ta), it->sourceTimeAt(tb),
+                                                             channel, ctx.peakScratch);
+                            }
                         }
-                    }
-                    if (drawn) {
-                        if (ctx.volumeWaveforms)
-                            scaleByClipVolume(*it, wx0, (wx1 - wx0) / static_cast<double>(n), tickAt, ctx.peakScratch);
-                        ctx.loudestWaveform = std::max(ctx.loudestWaveform, *std::ranges::max_element(ctx.peakScratch));
-                        if (ctx.logarithmic) {
-                            // Premiere's logarithmic waveform scaling: a 48 dB range.
-                            for (float& p : ctx.peakScratch)
-                                p = p <= 0 ? 0.0f : static_cast<float>(std::clamp((20.0 * std::log10(p) + 48.0) / 48.0, 0.0, 1.0));
-                        }
-                        const double step = (wx1 - wx0) / static_cast<double>(n);
-                        if (ctx.rectified) {
-                            ctx.mesh.addColumns(wx0, step, rect.top() + st.waveTop + 2 * half, 2 * half, ctx.peakScratch,
-                                                st.waveform(it->colorIndex));
-                        } else {
-                            const double centre = rect.top() + st.waveTop + half;
-                            ctx.mesh.addEnvelope(wx0, step, centre, half, ctx.peakScratch, st.waveform(it->colorIndex));
+                        if (drawn) {
+                            if (ctx.volumeWaveforms)
+                                scaleByClipVolume(*it, wx0, (wx1 - wx0) / static_cast<double>(n), tickAt, ctx.peakScratch);
+                            ctx.loudestWaveform = std::max(ctx.loudestWaveform, *std::ranges::max_element(ctx.peakScratch));
+                            if (ctx.logarithmic) {
+                                // Premiere's logarithmic waveform scaling: a 48 dB range.
+                                for (float& p : ctx.peakScratch)
+                                    p = p <= 0 ? 0.0f : static_cast<float>(std::clamp((20.0 * std::log10(p) + 48.0) / 48.0, 0.0, 1.0));
+                            }
+                            const double step = (wx1 - wx0) / static_cast<double>(n);
+                            const double channelHeight = 2 * half / channels;
+                            const double channelTop = rect.top() + st.waveTop + channel * channelHeight;
+                            const double channelHalf = std::max(1.0, channelHeight / 2 - 1);
+                            const double centre = channelTop + channelHeight / 2;
+                            if (channels > 1 && channelHeight >= 20 && wx1 - wx0 >= 40) {
+                                const QString text = channels == 2 ? (channel == 0 ? QStringLiteral("L") : QStringLiteral("R"))
+                                                                   : QString::number(channel + 1);
+                                const std::uint64_t key = (std::uint64_t{1} << 63) | (it->id.value * 32 + static_cast<std::uint64_t>(channel));
+                                RegionTag& tag = b.regionTags[key];
+                                if (tag.node && (tag.styleRevision != ctx.styleRevision || tag.text != text))
+                                    removeRegionTag(tag);
+                                if (!tag.node) {
+                                    tag.node = new QSGTransformNode;
+                                    ctx.labelGroup->appendChildNode(tag.node);
+                                    auto* glyphs = ctx.window->createTextNode();
+                                    tag.node->appendChildNode(glyphs);
+                                    glyphs->setColor(st.audioLabelColor);
+                                    QFont font = st.labelFont;
+                                    font.setPixelSize(static_cast<int>(st.microSize));
+                                    QTextLayout layout(text, font);
+                                    layout.beginLayout();
+                                    QTextLine line = layout.createLine();
+                                    line.setLineWidth(24);
+                                    layout.endLayout();
+                                    glyphs->addTextLayout({2, 0}, &layout);
+                                    tag.styleRevision = ctx.styleRevision;
+                                    tag.text = text;
+                                }
+                                QMatrix4x4 matrix;
+                                matrix.translate(static_cast<float>(wx0 + 2), static_cast<float>(channelTop + 1));
+                                tag.node->setMatrix(matrix);
+                                usedTags.push_back(key);
+                                ctx.top->addRect(QRectF(wx0 + 2, channelTop + 1, 16, st.microSize + 3), st.audioFill(it->colorIndex));
+                            }
+                            ctx.mesh.addRect(QRectF(wx0, centre, wx1 - wx0, 0.5), withAlpha(st.waveform(it->colorIndex), 0.25));
+                            if (channel > 0)
+                                ctx.mesh.addRect(QRectF(wx0, channelTop, wx1 - wx0, 1), withAlpha(st.waveform(it->colorIndex), 0.35));
+                            if (ctx.rectified) {
+                                ctx.mesh.addColumns(wx0, step, channelTop + channelHeight - 1, 2 * channelHalf, ctx.peakScratch,
+                                                    st.waveform(it->colorIndex));
+                            } else {
+                                ctx.mesh.addEnvelope(wx0, step, centre, channelHalf, ctx.peakScratch, st.waveform(it->colorIndex));
+                            }
                         }
                     }
                     // p02 audio: the part of the clip whose peaks are still being decoded is shaded (the waveform fills

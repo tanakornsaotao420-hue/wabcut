@@ -28,6 +28,7 @@
 #include "ProjectController.h"
 
 #include <wabcut/ai/Transcript.h>
+#include <wabcut/ai/Capability.h>
 #include <wabcut/ai/edit/Review.h>
 #include <wabcut/ai/edit/SequenceTranscript.h>
 #include <wabcut/ai/edit/TextEdits.h>
@@ -142,6 +143,8 @@ class TranscriptBridge : public QObject {
     /// Padding kept around cut words, in milliseconds.
     Q_PROPERTY(int paddingMs READ paddingMs WRITE setPaddingMs NOTIFY reviewOptionsChanged FINAL)
 
+    Q_PROPERTY(QString reviewScript READ reviewScript WRITE setReviewScript NOTIFY reviewOptionsChanged FINAL)
+
     // ---- Transcription ----
     /// [{ id, label, detail, available, reason }]: "local", then the cloud transcription models.
     Q_PROPERTY(QVariantList providers READ providers NOTIFY providersChanged FINAL)
@@ -246,6 +249,11 @@ public:
     Q_INVOKABLE void selectAllMatches();
     /// Finds fillers and silences with the current options.
     Q_INVOKABLE void refreshReview();
+    QString reviewScript() const { return m_reviewScript; }
+    void setReviewScript(const QString& script);
+    Q_INVOKABLE QVariantMap speechReviewConsent();
+    Q_INVOKABLE QString analyzeSpeech(const QString& modelId, bool allowOnce = false);
+    Q_INVOKABLE void seekReview(int item);
     Q_INVOKABLE void cancelReview();
     bool reviewBusy() const { return m_reviewBusy; }
     double reviewProgress() const { return m_reviewProgress; }
@@ -388,6 +396,8 @@ private:
         std::jthread thread;
     };
     std::vector<ReviewWorker> m_reviewWorkers;
+    void startReview(std::shared_ptr<ai::IChatModel> chat = {});
+    QString m_reviewScript;
     ReviewRunner m_reviewRunner;
     std::uint64_t m_reviewGeneration = 0;
     bool m_reviewBusy = false;
