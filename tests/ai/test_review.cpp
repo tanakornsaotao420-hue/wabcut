@@ -271,3 +271,28 @@ TEST_CASE("Speech review cannot combine different speakers", "[ai][edit][speech-
     const wabcut::ai::Json issue{{"kind", "repetition"}, {"first", 0}, {"last", 1}, {"confidence", 0.8}, {"reason", "test"}};
     CHECK_FALSE(parseSpeechReview(st, wabcut::ai::Json{{"issues", wabcut::ai::Json::array({issue})}}.dump(), 0, st.size(), false));
 }
+
+TEST_CASE("Speech review budgets serialized Thai requests and advances short chunks", "[ai][edit][speech-review]") {
+    Timeline tl(R"(
+        A1 |Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|
+    )");
+    std::string text;
+    for (int i = 0; i < 30; ++i) text += "ข้อความภาษาไทย";
+    const auto p = provider(tl, {{'A', transcript("th", {{text, 0, 5}, {text, 5, 10}, {text, 10, 15}})}});
+    const auto st = SequenceTranscript::build(tl.state, tl.seq, *p);
+    std::size_t visits = 0;
+    for (std::size_t first = 0; first < st.size();) {
+        const auto count = speechReviewChunkSize(st, "", first);
+        REQUIRE(count > 0);
+        REQUIRE(count < st.size());
+        const auto request = speechReviewRequest(st, "", first, count);
+        CHECK(request.system.size() + request.messages.front().text().size() <= kSpeechReviewInputBytes);
+        CHECK(kSpeechReviewInputBytes + request.maxOutputTokens + 1024 <= 8192);
+        REQUIRE(++visits <= st.size());
+        if (first + count == st.size()) break;
+        first += count - std::min(kSpeechReviewOverlap, count / 2);
+    }
+    CHECK(visits > 1);
+    CHECK(speechReviewChunkSize(st, std::string(4000, 'x'), 0) == 0);
+    CHECK(speechReviewChunkSize(st, "", st.size()) == 0);
+}
