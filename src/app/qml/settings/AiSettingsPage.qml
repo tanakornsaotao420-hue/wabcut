@@ -28,6 +28,12 @@ Item {
         return p ? p.name : qsTr("Provider")
     }
 
+    onCurrentModelChanged: {
+        page.message = ""
+        if (page.currentModel)
+            page.customProvider = page.currentModel.provider
+    }
+
     signal actionRequested(string what)
 
     /// AI on or off (see the header).
@@ -55,6 +61,10 @@ Item {
             return false
         }
         AiController.chatModel = id
+        if (AiController.chatModel !== id) {
+            page.setMessage(false, qsTr("Could not select this model."))
+            return false
+        }
         page.setMessage(true, qsTr("The assistant now uses %1.").arg(id))
         return true
     }
@@ -183,7 +193,7 @@ Item {
                     objectName: "aiCustomModelField"
                     width: Theme.space(52)
                     font.family: Theme.fontMono
-                    placeholderText: qsTr("Model id, e.g. claude-sonnet-5-5")
+                    placeholderText: qsTr("Type model ID, then Use")
                     Accessible.name: qsTr("Model id to use")
                     onAccepted: useButton.clicked()
                 }
