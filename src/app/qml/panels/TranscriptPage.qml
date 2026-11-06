@@ -36,6 +36,7 @@ FocusScope {
     readonly property bool tracksReady: chosenTracks > 0 || Transcript.audioTracks.length === 0
     /// What the word menu runs once it has closed ("fix", "find"): a row that moves the focus waits for the menu.
     property string pendingMenuAction: ""
+    property bool configuring: false
 
     /// P1 round (#30): Edit > Find (Ctrl+F) - the Find field, its text selected.
     function focusFind() {
@@ -158,7 +159,8 @@ FocusScope {
             consent.scope = scope
             consent.ask(prompt)
         } else {
-            Transcript.transcribe(scope)
+            if (Transcript.transcribe(scope, false, root.hasWords) === "")
+                root.configuring = false
         }
     }
 
@@ -260,7 +262,7 @@ FocusScope {
         id: setup
         objectName: "transcribeSetup"
         anchors.fill: parent
-        visible: !root.hasWords
+        visible: !root.hasWords || root.configuring
         clip: true
         contentHeight: setupColumn.implicitHeight
         boundsBehavior: Flickable.StopAtBounds
@@ -284,7 +286,7 @@ FocusScope {
             Text {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
-                text: qsTr("No transcript yet")
+                text: root.hasWords ? qsTr("Transcribe again") : qsTr("No transcript yet")
                 color: Theme.textPrimary
                 font.family: Theme.fontSans
                 font.pixelSize: Theme.textXl
@@ -300,6 +302,11 @@ FocusScope {
                 font.pixelSize: Theme.textMd
             }
 
+            PillButton {
+                visible: root.hasWords
+                text: qsTr("Back to transcript")
+                onClicked: root.configuring = false
+            }
             GroupLabel { text: qsTr("Transcribe with") }
             Repeater {
                 model: Transcript.providers
@@ -364,6 +371,47 @@ FocusScope {
                         enabled: providerRow.enabled
                         cursorShape: Qt.PointingHandCursor
                     }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                visible: Transcript.provider === "local"
+                enabled: Transcript.jobStatus !== "running"
+                GroupLabel { text: qsTr("Local transcription model") }
+                ComboBox {
+                    objectName: "transcriptLocalModel"
+                    Layout.fillWidth: true
+                    model: ["large-v3-turbo", "base", "tiny"]
+                    currentIndex: Math.max(0, model.indexOf(Transcript.localModel))
+                    onActivated: Transcript.localModel = currentText
+                    Accessible.name: qsTr("Local transcription model")
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Free, on this computer. Missing models download when you transcribe (Turbo: about 574 MB). First use needs internet; audio stays here.")
+                    wrapMode: Text.Wrap
+                    color: Theme.textSecondary
+                    font.family: Theme.fontSans
+                    font.pixelSize: Theme.textSm
+                }
+                GroupLabel { text: qsTr("Language") }
+                ComboBox {
+                    objectName: "transcriptLanguage"
+                    Layout.fillWidth: true
+                    model: [qsTr("Auto detect"), qsTr("Thai"), qsTr("English")]
+                    currentIndex: ["auto", "th", "en"].indexOf(Transcript.transcriptionLanguage)
+                    onActivated: Transcript.transcriptionLanguage = ["auto", "th", "en"][currentIndex]
+                    Accessible.name: qsTr("Transcription language")
+                }
+                FieldInput {
+                    objectName: "transcriptVocabulary"
+                    Layout.fillWidth: true
+                    text: Transcript.vocabulary
+                    maximumLength: 1000
+                    placeholderText: qsTr("Vocabulary hints, e.g. Asana, Demeter, workflow, use case")
+                    Accessible.name: qsTr("Vocabulary hints")
+                    onTextEdited: Transcript.vocabulary = text
                 }
             }
 
@@ -459,7 +507,7 @@ FocusScope {
                     Layout.fillWidth: true
                     variant: "primary"
                     iconName: "captions"
-                    text: qsTr("Transcribe sequence")
+                    text: root.hasWords ? qsTr("Replace transcript") : qsTr("Transcribe sequence")
                     enabled: !Transcript.setupNeeded && Transcript.jobStatus !== "running" && root.tracksReady
                     onClicked: root.start("sequence")
                 }
@@ -487,9 +535,26 @@ FocusScope {
     // ---- The transcript ----
     ColumnLayout {
         anchors.fill: parent
-        visible: root.hasWords
+        visible: root.hasWords && !root.configuring
         spacing: Theme.space(2)
 
+        Flow {
+            Layout.fillWidth: true
+            spacing: Theme.space(1)
+            enabled: Transcript.jobStatus !== "running"
+            PillButton {
+                objectName: "transcriptRetranscribe"
+                compact: true
+                text: qsTr("Transcribe again…")
+                onClicked: root.configuring = true
+            }
+            PillButton {
+                objectName: "transcriptClearText"
+                compact: true
+                text: qsTr("Clear transcript…")
+                onClicked: clearTextDialog.open()
+            }
+        }
         // Find
         RowLayout {
             Layout.fillWidth: true
@@ -1057,7 +1122,7 @@ FocusScope {
                     PillButton {
                         visible: !Transcript.previewing
                         compact: true
-                        text: qsTr("Clear")
+                        text: qsTr("Deselect")
                         onClicked: Transcript.clearSelection()
                     }
                 }
@@ -1178,13 +1243,33 @@ FocusScope {
         }
     }
 
+    WabcutDialog {
+        id: clearTextDialog
+        title: qsTr("Clear transcript text?")
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Hide the sequence's transcript for this session. Video, audio and captions stay unchanged. The cached text can return after restarting; use Transcribe again to replace it permanently.")
+            wrapMode: Text.Wrap
+            color: Theme.textSecondary
+            font.family: Theme.fontSans
+            font.pixelSize: Theme.textMd
+        }
+        footerData: [
+            PillButton { text: qsTr("Cancel"); onClicked: clearTextDialog.close() },
+            PillButton {
+                text: qsTr("Clear text")
+                onClicked: { Transcript.clearTranscript(); clearTextDialog.close() }
+            }
+        ]
+    }
     AiConsentDialog {
         id: consent
         property string scope: "sequence"
         onAllowed: always => {
             if (always)
                 AiController.grantConsent(consent.prompt.provider, "transcribe")
-            Transcript.transcribe(consent.scope, true) // the user's answer: allowed for this job
+            if (Transcript.transcribe(consent.scope, true, root.hasWords) === "")
+                root.configuring = false
         }
     }
 }

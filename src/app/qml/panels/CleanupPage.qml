@@ -10,6 +10,8 @@ Item {
     id: root
     objectName: "cleanupPage"
 
+    signal setupRequested()
+
     readonly property bool hasWords: Transcript.wordCount > 0
 
     function kindLabel(kind) {
@@ -94,6 +96,13 @@ Item {
             color: Theme.warning
             font.family: Theme.fontSans
             font.pixelSize: Theme.textSm
+        }
+        PillButton {
+            objectName: "speechReviewSettings"
+            compact: true
+            text: qsTr("AI settings / download local assistant…")
+            enabled: !Transcript.reviewBusy
+            onClicked: root.setupRequested()
         }
         // Thresholds
         RowLayout {

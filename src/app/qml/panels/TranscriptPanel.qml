@@ -111,7 +111,7 @@ Panel {
                     }
                 }
             }
-            CleanupPage {}
+            CleanupPage { onSetupRequested: root.setupRequested() }
             CaptionsPage {
                 id: captionsPage
             }
