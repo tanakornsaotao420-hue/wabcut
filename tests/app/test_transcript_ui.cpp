@@ -1550,3 +1550,57 @@ TEST_CASE("Transcription setup in the shell: the Tracks checklist and its summar
     INFO(join(messages));
     CHECK(messages.isEmpty());
 }
+
+TEST_CASE("Transcript reset and replacement preserve the timeline", "[app][transcript][replace]") {
+    VoiceTracks v;
+    REQUIRE(v.transcribe(QStringLiteral("sequence")) == std::vector<std::string>{"M.wav"});
+    REQUIRE(v.t.wordCount() > 0);
+    const auto before = v.controller.snapshot();
+    v.t.clearTranscript();
+    CHECK(v.t.wordCount() == 0);
+    CHECK(v.controller.snapshot() == before);
+    REQUIRE(v.transcribe(QStringLiteral("sequence")) == std::vector<std::string>{"M.wav"});
+    REQUIRE(v.t.wordCount() > 0);
+    CHECK(v.controller.snapshot() == before);
+    REQUIRE(v.t.transcribe(QStringLiteral("sequence"), false, true).isEmpty());
+    REQUIRE(waitFor([&] { return v.t.jobStatus() != QStringLiteral("running"); }));
+    CHECK(v.t.wordCount() > 0);
+    CHECK(v.controller.snapshot() == before);
+    // Failed replacement keeps the previous text available.
+    v.t.setTranscriber(QStringLiteral("fake"), QStringLiteral("Fake"),
+                       [](const std::string&, int, const std::function<void(float)>&,
+                          std::stop_token) -> std::expected<ai::Transcript, Error> {
+                           return std::unexpected(Error{ErrorCode::IoError, "test failure"});
+                       });
+    const int words = v.t.wordCount();
+    REQUIRE(v.t.transcribe(QStringLiteral("sequence"), false, true).isEmpty());
+    REQUIRE(waitFor([&] { return v.t.jobStatus() != QStringLiteral("running"); }));
+    CHECK(v.t.jobStatus() == QStringLiteral("error"));
+    CHECK(v.t.wordCount() == words);
+    CHECK(v.controller.snapshot() == before);
+}
+
+TEST_CASE("Transcription settings persist and reject unknown local models", "[app][transcript][replace]") {
+    QSettings().remove(QStringLiteral("transcript"));
+    TranscriptBridge t;
+    t.setLocalModel(QStringLiteral("large-v3-turbo"));
+    t.setTranscriptionLanguage(QStringLiteral("th"));
+    t.setVocabulary(QStringLiteral("Asana, Demeter, workflow, use case"));
+    t.setLocalModel(QStringLiteral("not-a-model"));
+    CHECK(t.localModel() == QStringLiteral("large-v3-turbo"));
+    CHECK(t.transcriptionLanguage() == QStringLiteral("th"));
+    CHECK(t.vocabulary().contains(QStringLiteral("Asana")));
+    TranscriptBridge again;
+    CHECK(again.localModel() == t.localModel());
+    CHECK(again.transcriptionLanguage() == t.transcriptionLanguage());
+    CHECK(again.vocabulary().isEmpty()); // project vocabulary is not saved globally
+    QSettings().remove(QStringLiteral("transcript"));
+}
+
+TEST_CASE("Transcription with no selected clips never transcribes the sequence",
+          "[app][transcript][replace]") {
+    VoiceTracks v;
+    CHECK_FALSE(v.t.transcribe(QStringLiteral("selection"), false, true).isEmpty());
+    CHECK(v.t.jobStatus() != QStringLiteral("running"));
+    CHECK(v.heard.empty());
+}
