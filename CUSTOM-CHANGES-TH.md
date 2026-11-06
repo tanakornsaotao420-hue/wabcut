@@ -1,60 +1,73 @@
-# WabCut Speech Review — source checkpoint 0.1
+# WabCut Speech Review 0.6.1 — คู่มือและรายการแก้ไข
 
-สถานะ: ซอร์สโค้ดสำหรับพัฒนาต่อ ยังไม่ใช่ EXE/ตัวติดตั้งที่ผ่านการทดสอบ Windows
+ซอร์สสำหรับ fork tanakornsaotao420-hue/wabcut สาขา speech-review
+ตัวติดตั้งชุดนี้ต้องผ่าน workflow Windows full build ก่อนใช้งาน; อย่าสับสนกับ build #4 ซึ่งมีเฉพาะการแก้ context overflow และฟีเจอร์ก่อนหน้า
 
-## สิ่งที่แก้
-- ขอบคลิปและแทร็กเป็นเหลี่ยม รวมพื้นหลัง Effect Controls; เปลี่ยนกลับเป็นขอบมนได้ใน Settings > Appearance
-- สัญลักษณ์คีย์เฟรมยังบอก interpolation ตามเดิม
-- คลื่นเสียงฟ้าบนพื้นน้ำเงินเข้ม แยก source channels จริง มีป้าย L/R เมื่อพื้นที่พอ ขยายความสูงแทร็กเพื่อให้ป้ายช่องเสียงปรากฏ
-- โมโนช่องเดียว; nested/multicam mix และแทร็กที่เตี้ยมากยังแสดงรวม
-- คลื่นเสียงแสดง source channels ไม่ใช่เสียงหลัง channel routing/effects
-- Clean up เพิ่ม Analyze speech with AI และช่องบทอ้างอิง
-- API วิเคราะห์ข้อความถอดเสียง: คำซ้ำ เริ่มพูดใหม่ ข้อความน่าสงสัย และคำต่างจากบท
-- ใช้ chat model/API key จาก Settings > AI เดิม; แสดงสิ่งที่จะส่งและประมาณราคาก่อนเรียก
-- ตรวจช่วงเงียบและคำแทรกด้วยระบบเดิมในเครื่อง
-- AI ส่งกลับรหัสคำ โปรแกรมผูกกับเวลาใน snapshot เอง ไม่มีการใช้เวลาที่ AI เดา
-- รายการ AI ไม่ถูกเลือกเพื่อลบอัตโนมัติ; กด timecode ไปก่อนจุดนั้น 1 วินาที แล้วเล่นฟัง
-- เลือกจุดตัด > Preview > Remove; ใช้ระบบ undo เดิม
-- ยกเลิกผลที่ล้าสมัยเมื่อแก้ timeline หรือเปลี่ยน sequence
+## สิ่งที่รวมในรุ่นนี้
 
-## ข้อจำกัด
-- การวิเคราะห์ใหม่อ่าน transcript ไม่ได้ฟังเสียง จึงตรวจเสียงสะดุดที่ ASR ละทิ้งไม่ได้
-- ไม่มีบทจะไม่ยืนยันว่าพูดผิด; ความต่างจากบทอาจเป็นการเรียบเรียงที่ถูกต้อง
-- จำกัด 6000 คำและบท UTF-8 24 KB ต่อครั้ง; แบ่งคำเป็นช่วงละ 300 ทับซ้อน 12 คำ
-- API response ผิด schema/เกินช่วง/ข้ามผู้พูดจะถูกปฏิเสธ ต้องวิเคราะห์ใหม่
-- Windows คอมไพล์ผ่านใน build รอบ 2; ยังไม่ได้แพ็กตัวติดตั้งเพราะชุดทดสอบ UI ไม่ผ่าน
-- ยังไม่ทดสอบ live API และการ export จริง
+- ขอบคลิป/แทร็กและพื้นหลัง Effect Controls เป็นเหลี่ยม เปลี่ยนกลับได้ใน Settings > Appearance
+- คลื่นเสียงสีฟ้าแสดง source channels จริง; ขยายความสูงแทร็กเพื่อเห็น L/R ชัดเจน
+- Speech review แบ่งคำขอตามขนาด UTF-8 ของ JSON และคำสั่งระบบ แทนการนับคำอย่างเดียว รองรับ local context 8192 โดยเผื่อ output และ chat template
+- หน้าถอดเสียงเลือก large-v3-turbo (เริ่มต้น), base หรือ tiny ได้
+- โมเดล Whisper และ VAD ที่ยังไม่มีดาวน์โหลดเมื่อกดถอดเสียง ใช้ระบบเครือข่ายและตรวจไฟล์ของแอป ไม่ต้องเปิด PowerShell
+- เลือกภาษา Auto / Thai / English และใส่คำศัพท์เฉพาะได้ จำโมเดล/ภาษาครั้งถัดไป แต่ไม่บันทึกคำศัพท์เฉพาะไว้ทั่วทุกโปรเจกต์
+- Transcribe again เปิดการตั้งค่าใหม่และ Replace transcript ถอดจริงแทนการคืน cache เก่า ผลที่ถอดสำเร็จจะแทนข้อความเดิม; ไฟล์ที่ถอดไม่สำเร็จยังมีข้อความเดิม
+- Clear transcript ล้างข้อความที่แสดงใน session นี้ โดยไม่ตัดวิดีโอ เสียง หรือซับ ปุ่ม Clear เดิมสำหรับยกเลิกเลือกคำเปลี่ยนชื่อเป็น Deselect
+- ไม่ถอดทั้ง sequence หากเลือก Selected clips โดยไม่มีคลิปที่เลือก
+- แสดงข้อผิดพลาดเริ่มงานในหน้า Transcript และเพิ่มทางเข้า AI settings จาก Clean up
+- ล้างข้อความยืนยันโมเดลเก่าเมื่อเปลี่ยนโมเดล Assistant เพื่อไม่ให้เลือก Local แล้วยังค้างข้อความว่าใช้ Gemini
 
-## การตรวจสอบที่ทำแล้วในรอบก่อน checkpoint
-- ชุดทดสอบ review เดิมและใหม่: 649 assertions ใน 6 test cases ผ่าน (focused harness, actual model/AI source)
-- SpeechReview.cpp และ Review.cpp คอมไพล์ผ่านด้วย GCC 13/C++23
-- ตัวอ่าน waveform ผ่านการตรวจ stereo/mono/รวมช่อง/ช่วงและ channel ไม่ถูกต้องแบบแยกส่วน
-- การ build core เต็มเริ่มได้แต่ยังไม่เสร็จ; ไม่ได้อ้างว่าชุดทดสอบทั้งหมดผ่าน
-- รวมกับ upstream dcb21f0 แล้ว; ต้องตรวจ full build อีกครั้ง
+## เริ่มใช้งานฟรีสำหรับภาษาไทย
 
-## Build Windows
-อ่าน docs/building.md เพื่อติดตั้ง Visual Studio, Qt และ vcpkg รุ่นที่โปรเจกต์กำหนดก่อน
-จาก PowerShell ที่โฟลเดอร์ wabcut:
+1. นำเข้าวิดีโอ วางใน timeline แล้วเปิด Transcript > Sequence
+2. เลือก On this computer เลือกโมเดล large-v3-turbo และ Language = Thai
+3. ใส่ชื่อที่ถอดผิดบ่อยใน Vocabulary hints เช่น `Asana, Demeter, workflow, use case, HR, Operations` คำเหล่านี้เป็นคำใบ้ ไม่ใช่คำสั่งให้เติมข้อความ
+4. เปิด track ที่มีเสียงพูด เช่น A1 แล้วกด Transcribe sequence
+5. ครั้งแรกต้องต่ออินเทอร์เน็ตเพื่อดาวน์โหลด Turbo ประมาณ 574 MB และ VAD ประมาณ 1 MB เสียงไม่ถูกอัปโหลดสำหรับการถอดแบบ Local หลังมีโมเดลแล้วใช้ offline ได้
+6. หากมี transcript เดิม ให้กด Transcribe again… ตั้งโมเดล/ภาษา แล้วกด Replace transcript ไม่ต้องลบคลิปและไม่ต้องใช้ Delete
+7. ถอดเสร็จให้ฟังตรวจชื่อเฉพาะและตัวเลข การเลือกโมเดลใหญ่ขึ้นไม่รับประกันว่าตรง 100% ใช้ Fix… แก้คำที่เลือก หรือ Correct from Script เมื่อมีบทที่ตรงกับเสียง
+
+โมเดลเก็บแยกจากโฟลเดอร์วิดีโอ เปลี่ยนวิดีโอไม่ต้องดาวน์โหลดโมเดลใหม่ หากย้ายไฟล์ที่โปรเจกต์เดิมอ้างอิง ต้องเชื่อมไฟล์ที่หายกับตำแหน่งใหม่ใน Library ก่อน
+
+## ล้างข้อความอย่างปลอดภัย
+
+- Clear transcript… > Clear text: ซ่อน transcript ของเสียงใน sequence นี้ตลอด session ปัจจุบัน ไม่แก้ timeline หรือ captions
+- Transcript ใช้ร่วมกันในระดับไฟล์เสียง คลิปอื่นที่ใช้ไฟล์/stream เดียวกันอาจถูกล้างการแสดงด้วย
+- เมื่อเปิดโปรแกรมใหม่ cache เดิมอาจกลับมา หากต้องการแทนที่ถาวรให้ใช้ Transcribe again… > Replace transcript
+- Delete / Remove ในการแก้ไขด้วยข้อความเป็นการตัดคลิปจริง ไม่ใช่ล้าง transcript
+- ซับที่สร้างไปแล้วไม่ได้เปลี่ยนเองจากการถอดใหม่ ให้ตรวจและอัปเดต captions จาก transcript ตามต้องการ
+
+## วิเคราะห์ช่วงคำพูดที่ควรตรวจ
+
+1. Settings > AI > Models เลือก Assistant model
+2. แบบฟรี Local: ไป Local assistant กด Download ของโมเดลที่เลือก แล้ว Start หยุดเล่นวิดีโอก่อน หากขึ้น paused for playback or export
+3. แบบ API: ไป Providers and keys วาง key ของผู้ให้บริการ กด Save and check จากนั้นเลือกโมเดลใน Models หากกรอก model ID เองต้องเป็น ID ที่ผู้ให้บริการรองรับ แล้วกด Use การเก็บ key สำเร็จยังไม่ยืนยันว่า model ID เรียกใช้ได้
+4. ไป Transcript > Clean up ใส่บทอ้างอิงสั้น ๆ หากมี แล้วกด Analyze speech with AI… ตรวจข้อมูล/ค่าใช้จ่ายในหน้าขอยืนยัน
+5. ระบบส่งข้อความถอดเสียงและบท ไม่ส่งเสียงหรือวิดีโอสำหรับ speech review ส่วน cloud transcription เป็นอีกงานหนึ่งที่ต้องส่งเสียงและขอยืนยันแยก
+6. ฟังตรง timecode ของแต่ละคำแนะนำก่อนเลือกตัด ระบบไม่เลือกคำแนะนำ AI เพื่อลบอัตโนมัติ
+7. Find ใช้ค้นช่วงเงียบ/คำแทรกในเครื่องได้โดยไม่ต้องมี chat model
+8. Preview > Remove เมื่อตรวจแล้ว และ Undo หากต้องการย้อนกลับ
+
+## ข้อจำกัดที่ต้องทราบ
+
+- AI review อ่าน transcript ไม่ได้ฟังเสียง จึงตรวจการออกเสียงหรือเสียงสะดุดที่ ASR ละทิ้งไม่ได้
+- context 8192 ใช้งานได้ด้วยการแบ่งคำขอเล็กลง หากบทอ้างอิงหรือ ASR entry เดียวใหญ่เกินงบ โปรแกรมจะแจ้งให้ย่อก่อนส่ง ไม่ตัดข้อความทิ้งเงียบ ๆ
+- ทั้งงานยังจำกัด 6000 หน่วยคำและบท UTF-8 24 KB; งบคำขอจริงเล็กกว่านี้ บทยาวอาจต้องย่อให้สั้นลง
+- โมโนแสดงช่องเดียว nested/multicam mix หรือแทร็กเตี้ยอาจแสดงรวม; waveform เป็นเสียงต้นทางก่อน effects/routing
+- ปิด optional C2PA SDK ใน preset Windows เนื่องจาก upstream archive ดาวน์โหลดล้มเหลว รุ่นนี้ไม่ลงลายเซ็น Content Credentials แบบฝังไฟล์ แต่ยังมี provenance sidecar
+
+## การทดสอบและสร้างตัวติดตั้ง
+
+Windows build #4 (commit 77997cc) คอมไพล์ ทดสอบ และแพ็กผ่านแล้ว โดยไม่รวม GPU/audio-device tests ชุดแก้ไข 0.6.1 หลังจากนั้นต้องตรวจใน build ใหม่ ไม่มีการอ้างว่าผ่าน live API หรือทดลองติดตั้งบนเครื่องผู้ใช้แล้ว
+
+เพิ่มกรณีทดสอบ: ล้าง/ถอดใหม่ไม่เปลี่ยน timeline, งานที่ล้มเหลวเก็บข้อความเดิม, จำภาษา/โมเดล, ปฏิเสธโมเดลไม่รู้จัก และไม่ถอดคลิปทั้งหมดเมื่อ selection ว่าง
+
+ใช้ GitHub Actions > Windows full build > Run workflow > speech-review หรือ PowerShell จาก source:
 
 ```powershell
 .\tools\build-speech-review-windows.ps1
 ```
 
-สคริปต์ configure, build, test แล้วจึงสร้าง MSI/portable ZIP ใน build/win-msvc/package
-อีกทางหนึ่งใช้ workflow .github/workflows/windows-full.yml ใน repository ของคุณบน GitHub Actions
-ต้องมีการเชื่อมต่อบัญชีและนำซอร์สชุดนี้เข้า repository ก่อน จึงสั่ง build ทางนั้นได้
+หลัง workflow สำเร็จ ดาวน์โหลด artifact `wabcut-windows-x64` แตก ZIP แล้วเลือก MSI เพื่อติดตั้งใหม่ ปิด WabCut และสำรอง project ก่อนอัปเดต
 
-## วิธีใช้เมื่อ build สำเร็จ
-1. Settings > AI > Providers: ตั้ง API key และเลือก chat model
-2. นำเข้าวิดีโอและถอดเสียงใน Transcript
-3. Clean up: วางบท (ถ้ามี), กด Analyze speech with AI และตรวจค่าใช้จ่าย
-4. กด timecode ของรายการแล้วเล่นฟัง เลือกจุดที่ต้องการตัดเอง
-5. Preview > Remove; Undo เพื่อย้อนกลับ
-
-ยังคง LICENSE และ THIRD-PARTY-NOTICES ของ upstream
-
-## Windows build dependency workaround
-The win-msvc preset disables the optional C2PA SDK because the pinned c2pa-rs 0.91.2 archive download failed with HTTP error 22 in run 41991390970. This build cannot sign embedded Content Credentials; exports retain the unsigned provenance sidecar. Video editing and speech review do not depend on this SDK. Re-enable with -DWABCUT_WITH_C2PA=ON and a verified WABCUT_C2PA_ARCHIVE when the pinned archive is available.
-
-## UI regression fixes after Windows build 2
-Audio colours now use shared Theme tokens. Default audio track heights return to 36/44 px so existing track visibility and drag/drop geometry are retained; expand tracks for larger stereo waves and L/R labels. The colour-source guard passes locally. Full Windows tests are pending the next CI run.
+คง LICENSE และ THIRD-PARTY-NOTICES ของ upstream
