@@ -6,9 +6,10 @@
 
 #include <wabcut/ai/AnalysisCache.h>
 #include <wabcut/ai/Capability.h>
+#include <wabcut/ai/HttpDownload.h>
 #include <wabcut/ai/TranscribeService.h>
-#include <wabcut/ai/TranscriptRedaction.h>
 #include <wabcut/ai/TranscriptJson.h>
+#include <wabcut/ai/TranscriptRedaction.h>
 #include <wabcut/ai/TranscriptionService.h>
 #include <wabcut/ai/edit/CaptionBuilder.h>
 #include <wabcut/ai/edit/MediaServices.h>
@@ -32,11 +33,11 @@
 #include <QTextBoundaryFinder>
 
 #include <algorithm>
-#include <optional>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 
 namespace wabcut::app {
 
@@ -167,6 +168,9 @@ void TranscriptParagraphModel::reset(std::vector<Paragraph> paragraphs) {
 TranscriptBridge::TranscriptBridge(QObject* parent)
     : QObject(parent), m_paragraphs(new TranscriptParagraphModel(this)),
       m_session(std::make_shared<ai::edit::MapTranscriptProvider>()) {
+    m_localModel = QSettings().value(QStringLiteral("transcript/localModel"), m_localModel).toString();
+    m_transcriptionLanguage =
+        QSettings().value(QStringLiteral("transcript/language"), m_transcriptionLanguage).toString();
     setUseAnalysisCache(true);
 }
 
@@ -186,6 +190,45 @@ TranscriptBridge* TranscriptBridge::create(QQmlEngine* qmlEngine, QJSEngine*) {
         bridge->setAiController(qmlEngine->singletonInstance<AiController*>("Wabcut", "AiController"));
     }
     return bridge;
+}
+
+void TranscriptBridge::setLocalModel(const QString& value) {
+    const auto* model = ai::findModel(value.toStdString());
+    if (!model || model->kind != ai::ModelKind::Whisper || value == m_localModel)
+        return;
+    m_localModel = value;
+    QSettings().setValue(QStringLiteral("transcript/localModel"), value);
+    emit transcriptionOptionsChanged();
+}
+
+void TranscriptBridge::setTranscriptionLanguage(const QString& value) {
+    const QString language = value.trimmed().toLower();
+    if (language != QStringLiteral("auto") && language != QStringLiteral("th") &&
+        language != QStringLiteral("en"))
+        return;
+    m_transcriptionLanguage = language;
+    QSettings().setValue(QStringLiteral("transcript/language"), language);
+    emit transcriptionOptionsChanged();
+}
+
+void TranscriptBridge::setVocabulary(const QString& value) {
+    m_vocabulary = value.left(1000);
+    emit transcriptionOptionsChanged();
+}
+
+void TranscriptBridge::clearTranscript() {
+    if (m_jobStatus == QLatin1String("running") || !m_controller)
+        return;
+    const auto seq = m_controller->currentSequence();
+    if (!seq)
+        return;
+    // Empty overrides hide cached words for this session, without editing media or captions.
+    for (const auto& track : seq->audioTracks)
+        for (const auto& clip : track->clips)
+            m_session->add(clip.media, clip.stream.index, std::make_shared<const ai::Transcript>());
+    rebuild();
+    setMessage(tr("Transcript cleared for this session. Video, audio and captions are unchanged. Transcribe "
+                  "again to replace the cached text."));
 }
 
 void TranscriptBridge::setUseAnalysisCache(bool use) {
@@ -894,7 +937,7 @@ void TranscriptBridge::setProvider(const QString& id) {
     emit providersChanged();
 }
 
-std::vector<TranscriptBridge::JobItem> TranscriptBridge::jobItems(const QString& scope) const {
+std::vector<TranscriptBridge::JobItem> TranscriptBridge::jobItems(const QString& scope, bool replace) const {
     std::vector<JobItem> items;
     if (!m_controller)
         return items;
@@ -908,6 +951,8 @@ std::vector<TranscriptBridge::JobItem> TranscriptBridge::jobItems(const QString&
         for (ClipId c : edit::withLinkedClips(*seq, clips))
             wanted.insert(c.value);
     }
+    if (scope == QLatin1String("selection") && wanted.empty())
+        return items;
     std::set<std::pair<std::uint64_t, int>> seen;
     for (std::size_t t = 0; t < seq->audioTracks.size(); ++t) {
         const TrackPtr& track = seq->audioTracks[t];
@@ -924,7 +969,8 @@ std::vector<TranscriptBridge::JobItem> TranscriptBridge::jobItems(const QString&
             if (!media || media->isGenerator() || clip.stream.index < 0
                 || clip.stream.index >= static_cast<int>(media->info.audio.size()))
                 continue;
-            if (m_chain->transcript(*media, clip.stream.index))
+            if (const auto existing = m_chain->transcript(*media, clip.stream.index);
+                !replace && existing && !existing->words.empty())
                 continue; // transcribed already
             const auto path = resolveMediaPath(media->locator, m_controller->projectFile());
             if (!path || !std::filesystem::is_regular_file(*path))
@@ -939,12 +985,12 @@ std::vector<TranscriptBridge::JobItem> TranscriptBridge::jobItems(const QString&
 QVariantMap TranscriptBridge::consentFor(const QString& scope) const {
     if (!m_ai || !m_provider.startsWith(QLatin1String("cloud:")))
         return {};
-    const std::vector<JobItem> items = jobItems(scope);
+    const std::vector<JobItem> items = jobItems(scope, true);
     return m_ai->consentPrompt(m_provider.mid(6), QStringLiteral("transcribe"),
                                tr("the audio of %n media file(s)", nullptr, static_cast<int>(items.size())));
 }
 
-QString TranscriptBridge::transcribe(const QString& scope, bool allowOnce) {
+QString TranscriptBridge::transcribe(const QString& scope, bool allowOnce, bool replace) {
     if (m_jobStatus == QLatin1String("running"))
         return tr("A transcription is running");
     // Consent is enforced here and by the guarded platform call, not only by the panel that asks for it (AI-6).
@@ -961,7 +1007,7 @@ QString TranscriptBridge::transcribe(const QString& scope, bool allowOnce) {
             return m_message;
         }
     }
-    std::vector<JobItem> items = jobItems(scope);
+    std::vector<JobItem> items = jobItems(scope, replace);
     if (items.empty()) {
         // Selected clips heard only on tracks switched off under Tracks: say so, and which tracks (fix round 1: the
         // message below blamed transcripts or missing files).
@@ -992,7 +1038,9 @@ QString TranscriptBridge::transcribe(const QString& scope, bool allowOnce) {
         setMessage(tr("Nothing to transcribe: every clip here has a transcript, or its media file is missing"));
         return m_message;
     }
-    return startJob(std::move(items), allowOnce);
+    const QString error = startJob(std::move(items), allowOnce);
+    setMessage(error);
+    return error;
 }
 
 QVariantMap TranscriptBridge::consentForMedia() const {
@@ -1024,7 +1072,9 @@ QString TranscriptBridge::transcribeMedia(MediaId media, int audioStream, bool a
     }
     std::vector<JobItem> items{{item->id, audioStream, item->info.audio[static_cast<std::size_t>(audioStream)].index,
                                 pathToUtf8(*path)}};
-    return startJob(std::move(items), allowOnce);
+    const QString error = startJob(std::move(items), allowOnce);
+    setMessage(error);
+    return error;
 }
 
 QString TranscriptBridge::startJob(std::vector<JobItem> items, bool allowOnce) {
@@ -1081,14 +1131,50 @@ QString TranscriptBridge::startJob(std::vector<JobItem> items, bool allowOnce) {
             if (auto created = m_ai->platform().transcriber(provider.substr(6), options); !created)
                 return fromStd(created.error().message); // no key, unknown model, ...: say so now
         }
+        // Model downloads use the app's network stack and re-check offline/privacy locks at dispatch.
+        class DownloadGuard final : public ai::IHttpTransport {
+        public:
+            explicit DownloadGuard(AiController& controller) : owner(controller) {}
+            std::expected<ai::HttpResponse, ai::AiError> send(const ai::HttpRequest& request,
+                                                              const ai::HttpStreamHandlers& handlers,
+                                                              std::stop_token stop) override {
+                auto guarded = request;
+                guarded.beforeDispatch.check = [this]() -> std::expected<void, ai::AiError> {
+                    if (owner.platform().consent().offlineMode() || owner.platform().consent().projectLock())
+                        return std::unexpected(
+                            ai::AiError{ai::AiErrorCode::Offline, "Model download blocked by offline mode"});
+                    return {};
+                };
+                return owner.transport().send(guarded, handlers, stop);
+            }
+            AiController& owner;
+        };
+        std::shared_ptr<DownloadGuard> guard;
+        std::shared_ptr<ai::HttpDownloadTransport> downloads;
+        if (m_ai) {
+            (void)m_ai->transport();
+            guard = std::make_shared<DownloadGuard>(*m_ai);
+            downloads = std::make_shared<ai::HttpDownloadTransport>(*guard);
+        }
+        const auto model = m_localModel.toStdString();
+        const auto language = m_transcriptionLanguage.toStdString();
+        const auto vocabulary = m_vocabulary.toStdString();
         ai::TranscribeServiceConfig config;
+        config.local.download = downloads.get();
         config.platform = m_ai ? &m_ai->platform() : nullptr;
         auto service = std::make_shared<ai::TranscribeService>(std::move(config));
-        transcriber = [service, provider, allowOnce, redacted](const std::string& path, int stream,
-                                                               const std::function<void(float)>& progress,
-                                                               std::stop_token stop) -> std::expected<ai::Transcript, Error> {
+        transcriber = [service, provider, allowOnce, redacted, guard, downloads, model, language, vocabulary](
+                          const std::string& path, int stream, const std::function<void(float)>& progress,
+                          std::stop_token stop) -> std::expected<ai::Transcript, Error> {
+            (void)guard; // Keep the guarded transport alive for the complete service call.
+            (void)downloads;
             ai::TranscribeJobOptions options;
             options.provider = provider;
+            options.local.model = model;
+            options.language = language;
+            options.local.initialPrompt = vocabulary;
+            // An explicit GUI transcription always computes the chosen model, even after Clear.
+            options.useCache = false;
             options.allowOnce = allowOnce; // only the user's answer; otherwise the platform requires recorded consent
             const auto ranges = redacted.find(path);
             auto outcome = service->run(
@@ -1113,7 +1199,11 @@ QString TranscriptBridge::startJob(std::vector<JobItem> items, bool allowOnce) {
     };
     m_jobStatus = QStringLiteral("running");
     m_jobProgress = 0.0;
-    m_jobText = tr("Transcribing %n file(s)…", nullptr, static_cast<int>(items.size()));
+    m_jobText = m_provider == QLatin1String("local")
+                    ? tr("Preparing %1 (downloading missing models), then transcribing %n file(s)…", nullptr,
+                         static_cast<int>(items.size()))
+                          .arg(m_localModel)
+                    : tr("Transcribing %n file(s)…", nullptr, static_cast<int>(items.size()));
     emit jobChanged();
     const int generation = ++m_jobGeneration;
     QPointer<TranscriptBridge> self(this);

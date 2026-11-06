@@ -145,6 +145,12 @@ class TranscriptBridge : public QObject {
 
     Q_PROPERTY(QString reviewScript READ reviewScript WRITE setReviewScript NOTIFY reviewOptionsChanged FINAL)
 
+    Q_PROPERTY(
+        QString localModel READ localModel WRITE setLocalModel NOTIFY transcriptionOptionsChanged FINAL)
+    Q_PROPERTY(QString transcriptionLanguage READ transcriptionLanguage WRITE setTranscriptionLanguage NOTIFY
+                   transcriptionOptionsChanged FINAL)
+    Q_PROPERTY(
+        QString vocabulary READ vocabulary WRITE setVocabulary NOTIFY transcriptionOptionsChanged FINAL)
     // ---- Transcription ----
     /// [{ id, label, detail, available, reason }]: "local", then the cloud transcription models.
     Q_PROPERTY(QVariantList providers READ providers NOTIFY providersChanged FINAL)
@@ -208,6 +214,13 @@ public:
     int paddingMs() const { return m_paddingMs; }
     void setPaddingMs(int ms);
     QVariantList providers() const;
+    QString localModel() const { return m_localModel; }
+    void setLocalModel(const QString& value);
+    QString transcriptionLanguage() const { return m_transcriptionLanguage; }
+    void setTranscriptionLanguage(const QString& value);
+    QString vocabulary() const { return m_vocabulary; }
+    void setVocabulary(const QString& value);
+    Q_INVOKABLE void clearTranscript();
     QString provider() const { return m_provider; }
     void setProvider(const QString& id);
     bool setupNeeded() const;
@@ -265,7 +278,7 @@ public:
     /// Starts a transcription of the sequence ("sequence") or the selected clips ("selection") with `provider`.
     /// Returns "" or why not. A cloud provider needs recorded consent, or `allowOnce`: true only when the user just
     /// answered the consent prompt (Allow once / Always). Without either nothing is uploaded.
-    Q_INVOKABLE QString transcribe(const QString& scope, bool allowOnce = false);
+    Q_INVOKABLE QString transcribe(const QString& scope, bool allowOnce = false, bool replace = false);
     Q_INVOKABLE void cancelTranscription();
     /// What a cloud provider needs before it may send audio: AiController.consentPrompt(...) for the job, or {}.
     Q_INVOKABLE QVariantMap consentFor(const QString& scope) const;
@@ -325,6 +338,7 @@ signals:
     void searchChanged();
     void reviewChanged();
     void reviewOptionsChanged();
+    void transcriptionOptionsChanged();
     void providersChanged();
     void jobChanged();
     void audioTracksChanged();
@@ -356,7 +370,7 @@ private:
     void search();
     void seekToWord(std::size_t word);
     ai::edit::CutOptions cutOptions() const;
-    std::vector<JobItem> jobItems(const QString& scope) const;
+    std::vector<JobItem> jobItems(const QString& scope, bool replace = false) const;
     /// Starts the transcription job of `items` (non-empty) with the chosen provider. "" or why not.
     QString startJob(std::vector<JobItem> items, bool allowOnce);
     void finishJob(std::vector<std::pair<JobItem, std::expected<ai::Transcript, Error>>> results, bool cancelled);
@@ -406,6 +420,9 @@ private:
     bool m_reviewFillers = true;
     double m_silenceSeconds = 0.8;
     int m_paddingMs = 40;
+    QString m_localModel = QStringLiteral("large-v3-turbo");
+    QString m_transcriptionLanguage = QStringLiteral("auto");
+    QString m_vocabulary;
     QString m_provider = QStringLiteral("local");
     std::map<QString, std::pair<QString, Transcriber>> m_fakeTranscribers;
     QString m_jobStatus = QStringLiteral("idle");
